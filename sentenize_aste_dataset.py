@@ -43,6 +43,7 @@ def main(src, dst):
                         for j in range(2):
                             for i in range(len(triplet[j])):
                                 triplet[j][i] -= offset
+                                assert triplet[j][i] < len(sent_tokens), (triplet[j][i], len(sent_tokens))
                     line_entries.append((sent, sent_triplets))
                 offset += len(sent_tokens)
             assert sum(len(line_entry[1]) for line_entry in line_entries) == len(triplets)

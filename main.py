@@ -273,8 +273,7 @@ if args.do_train:
         gradient_clip_val=1.0,
         #amp_level='O1',
         max_epochs=args.num_train_epochs,
-        checkpoint_callback=checkpoint_callback,
-        callbacks=[LoggingCallback()],
+        callbacks=[LoggingCallback(), checkpoint_callback],
     )
 
     trainer = pl.Trainer(**train_params)

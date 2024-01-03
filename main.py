@@ -121,23 +121,13 @@ class T5FineTuner(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch)
-
-        tensorboard_logs = {"train_loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}
-
-    def training_epoch_end(self, outputs):
-        avg_train_loss = torch.stack([x["loss"] for x in outputs]).mean()
-        tensorboard_logs = {"avg_train_loss": avg_train_loss}
-        return {"avg_train_loss": avg_train_loss, "log": tensorboard_logs, 'progress_bar': tensorboard_logs}
+        self.log("train_loss", loss, on_epoch=True)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         loss = self._step(batch)
-        return {"val_loss": loss}
-
-    def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        tensorboard_logs = {"val_loss": avg_loss}
-        return {"avg_val_loss": avg_loss, "log": tensorboard_logs, 'progress_bar': tensorboard_logs}
+        self.log("val_loss", loss, on_epoch=True)
+        return loss
 
     def configure_optimizers(self):
         '''Prepare optimizer and schedule (linear warmup and decay)'''

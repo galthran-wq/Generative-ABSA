@@ -84,12 +84,12 @@ def get_dataset(tokenizer, type_path, args):
 
 
 class T5FineTuner(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams_):
         super(T5FineTuner, self).__init__()
-        self.hparams = hparams
+        self.hparams_ = hparams_
 
-        self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
-        self.tokenizer = T5Tokenizer.from_pretrained(hparams.model_name_or_path)
+        self.model = T5ForConditionalGeneration.from_pretrained(hparams_.model_name_or_path)
+        self.tokenizer = T5Tokenizer.from_pretrained(hparams_.model_name_or_path)
 
     def is_logger(self):
         return True
@@ -145,14 +145,14 @@ class T5FineTuner(pl.LightningModule):
         optimizer_grouped_parameters = [
             {
                 "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.hparams.weight_decay,
+                "weight_decay": self.hparams_.weight_decay,
             },
             {
                 "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
+        optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams_.learning_rate, eps=self.hparams_.adam_epsilon)
         self.opt = optimizer
         return [optimizer]
 
@@ -169,22 +169,22 @@ class T5FineTuner(pl.LightningModule):
         return tqdm_dict
 
     def train_dataloader(self):
-        train_dataset = get_dataset(tokenizer=self.tokenizer, type_path="train", args=self.hparams)
-        dataloader = DataLoader(train_dataset, batch_size=self.hparams.train_batch_size, drop_last=True, shuffle=True, num_workers=4)
+        train_dataset = get_dataset(tokenizer=self.tokenizer, type_path="train", args=self.hparams_)
+        dataloader = DataLoader(train_dataset, batch_size=self.hparams_.train_batch_size, drop_last=True, shuffle=True, num_workers=4)
         t_total = (
-            (len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, len(self.hparams.n_gpu))))
-            // self.hparams.gradient_accumulation_steps
-            * float(self.hparams.num_train_epochs)
+            (len(dataloader.dataset) // (self.hparams_.train_batch_size * max(1, len(self.hparams_.n_gpu))))
+            // self.hparams_.gradient_accumulation_steps
+            * float(self.hparams_.num_train_epochs)
         )
         scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total
+            self.opt, num_warmup_steps=self.hparams_.warmup_steps, num_training_steps=t_total
         )
         self.lr_scheduler = scheduler
         return dataloader
 
     def val_dataloader(self):
-        val_dataset = get_dataset(tokenizer=self.tokenizer, type_path="dev", args=self.hparams)
-        return DataLoader(val_dataset, batch_size=self.hparams.eval_batch_size, num_workers=4)
+        val_dataset = get_dataset(tokenizer=self.tokenizer, type_path="dev", args=self.hparams_)
+        return DataLoader(val_dataset, batch_size=self.hparams_.eval_batch_size, num_workers=4)
 
 
 class LoggingCallback(pl.Callback):

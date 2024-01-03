@@ -153,13 +153,12 @@ class T5FineTuner(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams_.learning_rate, eps=self.hparams_.adam_epsilon)
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.hparams_.learning_rate, eps=self.hparams_.adam_epsilon)
         self.opt = optimizer
         return [optimizer]
 
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, second_order_closure=None, on_tpu=False):
-        optimizer.step()
-        optimizer.zero_grad()
+    def optimizer_step(self, epoch, batch_idx, optimizer, *args, **kwargs):
+        super().optimizer_step(epoch, batch_idx, optimizer, *args, **kwargs)
         self.lr_scheduler.step()
 
     def get_tqdm_dict(self):

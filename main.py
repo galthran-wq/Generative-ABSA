@@ -8,6 +8,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import seed_everything
 
 from transformers import AdamW, T5ForConditionalGeneration, T5Tokenizer
@@ -156,11 +157,8 @@ class T5FineTuner(pl.LightningModule):
         self.opt = optimizer
         return [optimizer]
 
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, second_order_closure=None):
-        if self.trainer.use_tpu:
-            xm.optimizer_step(optimizer)
-        else:
-            optimizer.step()
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, second_order_closure=None, on_tpu=False):
+        optimizer.step()
         optimizer.zero_grad()
         self.lr_scheduler.step()
 
@@ -263,8 +261,8 @@ if args.do_train:
     print("\n****** Conduct Training ******")
     model = T5FineTuner(args)
 
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        filepath=args.output_dir, prefix="ckt", monitor='val_loss', mode='min', save_top_k=3
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=args.output_dir, monitor='val_loss', mode='min', save_top_k=3
     )
 
     # prepare for trainer

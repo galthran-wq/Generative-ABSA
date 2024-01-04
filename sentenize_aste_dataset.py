@@ -6,7 +6,7 @@ from copy import deepcopy
 from razdel import sentenize
 
 
-def main(src, dst):
+def main(src, dst, keep_empty=False):
     os.makedirs(dst, exist_ok=True)
 
     for file in os.listdir(src):
@@ -49,6 +49,8 @@ def main(src, dst):
                                 triplet[j][i] -= offset
                                 assert triplet[j][i] < len(sent_tokens), (triplet[j][i], len(sent_tokens))
                     line_entries.append((sent, sent_triplets))
+                elif keep_empty:
+                    line_entries.append((sent, []))
                 offset += len(sent_tokens)
             entries.append(line_entries)
 
@@ -76,8 +78,9 @@ if __name__ == "__main__":
     # basic settings
     parser.add_argument("--src", default='bank_3200', type=str, required=False)
     parser.add_argument("--dst", default='bank_3200_sentenized', type=str, required=False)
+    parser.add_argument("--keep-empty", action="store_true")
     args = parser.parse_args()
     data_dir = Path("./data/aste/")
     src = data_dir / args.src
     dst = data_dir / args.dst
-    main(src, dst)
+    main(src, dst, keep_empty=args.keep_empty)

@@ -287,7 +287,7 @@ if args.do_eval:
     saved_model_dir = args.output_dir
     for f in os.listdir(saved_model_dir):
         file_name = os.path.join(saved_model_dir, f)
-        if 'cktepoch' in file_name:
+        if 'ckpt' in file_name:
             all_checkpoints.append(file_name)
 
     # conduct some selection (or not)
@@ -303,7 +303,7 @@ if args.do_eval:
     test_loader = DataLoader(test_dataset, batch_size=32, num_workers=4)
     
     for checkpoint in all_checkpoints:
-        epoch = checkpoint.split('=')[-1][:-5] if len(checkpoint) > 1 else ""
+        epoch = checkpoint.split('-')[0].split("=")[-1] if len(checkpoint) > 1 else ""
         # only perform evaluation at the specific epochs ("15-19")
         # eval_begin, eval_end = args.eval_begin_end.split('-')
         if 0 <= int(epoch) < 100:
@@ -311,23 +311,25 @@ if args.do_eval:
 
             # reload the model and conduct inference
             print(f"\nLoad the trained model from {checkpoint}...")
-            model_ckpt = torch.load(checkpoint)
-            model = T5FineTuner(model_ckpt['hyper_parameters'])
-            model.load_state_dict(model_ckpt['state_dict'])
+            model = T5FineTuner.load_from_checkpoint(checkpoint, hparams_=args)
+            # model.load_state_dict(model_ckpt['state_dict'])
             
-            dev_result = evaluate(dev_loader, model, args.paradigm, args.task)
-            if dev_result['f1'] > best_f1:
-                best_f1 = dev_result['f1']
+            sents, _ = read_line_examples_from_file(f'data/{args.task}/{args.dataset}/dev.txt')
+            dev_result = evaluate(dev_loader, model, args.paradigm, args.task, sents)
+            fixed_scores = dev_result[1]
+            if fixed_scores['f1'] > best_f1:
+                best_f1 = fixed_scores['f1']
                 best_checkpoint = checkpoint
                 best_epoch = epoch
 
             # add the global step to the name of these metrics for recording
             # 'f1' --> 'f1_1000'
-            dev_result = dict((k + '_{}'.format(epoch), v) for k, v in dev_result.items())
+            dev_result = dict((k + '_{}'.format(epoch), v) for k, v in fixed_scores.items())
             dev_results.update(dev_result)
 
-            test_result = evaluate(test_loader, model, args.paradigm, args.task)
-            test_result = dict((k + '_{}'.format(epoch), v) for k, v in test_result.items())
+            sents, _ = read_line_examples_from_file(f'data/{args.task}/{args.dataset}/test.txt')
+            test_result = evaluate(test_loader, model, args.paradigm, args.task, sents)
+            test_result = dict((k + '_{}'.format(epoch), v) for k, v in test_result[1].items())
             test_results.update(test_result)
 
     # print test results over last few steps

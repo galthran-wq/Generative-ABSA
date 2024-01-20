@@ -8,6 +8,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import seed_everything
 
 from transformers import AdamW, T5ForConditionalGeneration, T5Tokenizer
@@ -84,12 +85,12 @@ def get_dataset(tokenizer, type_path, args):
 
 
 class T5FineTuner(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams_):
         super(T5FineTuner, self).__init__()
-        self.hparams = hparams
+        self.hparams_ = hparams_
 
-        self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
-        self.tokenizer = T5Tokenizer.from_pretrained(hparams.model_name_or_path)
+        self.model = T5ForConditionalGeneration.from_pretrained(hparams_.model_name_or_path)
+        self.tokenizer = T5Tokenizer.from_pretrained(hparams_.model_name_or_path)
 
     def is_logger(self):
         return True
@@ -120,23 +121,13 @@ class T5FineTuner(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch)
-
-        tensorboard_logs = {"train_loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}
-
-    def training_epoch_end(self, outputs):
-        avg_train_loss = torch.stack([x["loss"] for x in outputs]).mean()
-        tensorboard_logs = {"avg_train_loss": avg_train_loss}
-        return {"avg_train_loss": avg_train_loss, "log": tensorboard_logs, 'progress_bar': tensorboard_logs}
+        self.log("train_loss", loss, on_epoch=True)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         loss = self._step(batch)
-        return {"val_loss": loss}
-
-    def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        tensorboard_logs = {"val_loss": avg_loss}
-        return {"avg_val_loss": avg_loss, "log": tensorboard_logs, 'progress_bar': tensorboard_logs}
+        self.log("val_loss", loss, on_epoch=True)
+        return loss
 
     def configure_optimizers(self):
         '''Prepare optimizer and schedule (linear warmup and decay)'''
@@ -145,23 +136,19 @@ class T5FineTuner(pl.LightningModule):
         optimizer_grouped_parameters = [
             {
                 "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.hparams.weight_decay,
+                "weight_decay": self.hparams_.weight_decay,
             },
             {
                 "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.hparams_.learning_rate, eps=self.hparams_.adam_epsilon)
         self.opt = optimizer
         return [optimizer]
 
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, second_order_closure=None):
-        if self.trainer.use_tpu:
-            xm.optimizer_step(optimizer)
-        else:
-            optimizer.step()
-        optimizer.zero_grad()
+    def optimizer_step(self, epoch, batch_idx, optimizer, *args, **kwargs):
+        super().optimizer_step(epoch, batch_idx, optimizer, *args, **kwargs)
         self.lr_scheduler.step()
 
     def get_tqdm_dict(self):
@@ -169,22 +156,22 @@ class T5FineTuner(pl.LightningModule):
         return tqdm_dict
 
     def train_dataloader(self):
-        train_dataset = get_dataset(tokenizer=self.tokenizer, type_path="train", args=self.hparams)
-        dataloader = DataLoader(train_dataset, batch_size=self.hparams.train_batch_size, drop_last=True, shuffle=True, num_workers=4)
+        train_dataset = get_dataset(tokenizer=self.tokenizer, type_path="train", args=self.hparams_)
+        dataloader = DataLoader(train_dataset, batch_size=self.hparams_.train_batch_size, drop_last=True, shuffle=True, num_workers=4)
         t_total = (
-            (len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, len(self.hparams.n_gpu))))
-            // self.hparams.gradient_accumulation_steps
-            * float(self.hparams.num_train_epochs)
+            (len(dataloader.dataset) // (self.hparams_.train_batch_size * max(1, len(self.hparams_.n_gpu))))
+            // self.hparams_.gradient_accumulation_steps
+            * float(self.hparams_.num_train_epochs)
         )
         scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total
+            self.opt, num_warmup_steps=self.hparams_.warmup_steps, num_training_steps=t_total
         )
         self.lr_scheduler = scheduler
         return dataloader
 
     def val_dataloader(self):
-        val_dataset = get_dataset(tokenizer=self.tokenizer, type_path="dev", args=self.hparams)
-        return DataLoader(val_dataset, batch_size=self.hparams.eval_batch_size, num_workers=4)
+        val_dataset = get_dataset(tokenizer=self.tokenizer, type_path="dev", args=self.hparams_)
+        return DataLoader(val_dataset, batch_size=self.hparams_.eval_batch_size, num_workers=4)
 
 
 class LoggingCallback(pl.Callback):
@@ -263,8 +250,8 @@ if args.do_train:
     print("\n****** Conduct Training ******")
     model = T5FineTuner(args)
 
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        filepath=args.output_dir, prefix="ckt", monitor='val_loss', mode='min', save_top_k=3
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=args.output_dir, monitor='val_loss', mode='min', save_top_k=3
     )
 
     # prepare for trainer
@@ -275,8 +262,7 @@ if args.do_train:
         gradient_clip_val=1.0,
         #amp_level='O1',
         max_epochs=args.num_train_epochs,
-        checkpoint_callback=checkpoint_callback,
-        callbacks=[LoggingCallback()],
+        callbacks=[LoggingCallback(), checkpoint_callback],
     )
 
     trainer = pl.Trainer(**train_params)
@@ -301,7 +287,7 @@ if args.do_eval:
     saved_model_dir = args.output_dir
     for f in os.listdir(saved_model_dir):
         file_name = os.path.join(saved_model_dir, f)
-        if 'cktepoch' in file_name:
+        if 'ckpt' in file_name:
             all_checkpoints.append(file_name)
 
     # conduct some selection (or not)
@@ -317,7 +303,7 @@ if args.do_eval:
     test_loader = DataLoader(test_dataset, batch_size=32, num_workers=4)
     
     for checkpoint in all_checkpoints:
-        epoch = checkpoint.split('=')[-1][:-5] if len(checkpoint) > 1 else ""
+        epoch = checkpoint.split('-')[0].split("=")[-1] if len(checkpoint) > 1 else ""
         # only perform evaluation at the specific epochs ("15-19")
         # eval_begin, eval_end = args.eval_begin_end.split('-')
         if 0 <= int(epoch) < 100:
@@ -325,23 +311,25 @@ if args.do_eval:
 
             # reload the model and conduct inference
             print(f"\nLoad the trained model from {checkpoint}...")
-            model_ckpt = torch.load(checkpoint)
-            model = T5FineTuner(model_ckpt['hyper_parameters'])
-            model.load_state_dict(model_ckpt['state_dict'])
+            model = T5FineTuner.load_from_checkpoint(checkpoint, hparams_=args)
+            # model.load_state_dict(model_ckpt['state_dict'])
             
-            dev_result = evaluate(dev_loader, model, args.paradigm, args.task)
-            if dev_result['f1'] > best_f1:
-                best_f1 = dev_result['f1']
+            sents, _ = read_line_examples_from_file(f'data/{args.task}/{args.dataset}/dev.txt')
+            dev_result = evaluate(dev_loader, model, args.paradigm, args.task, sents)
+            fixed_scores = dev_result[1]
+            if fixed_scores['f1'] > best_f1:
+                best_f1 = fixed_scores['f1']
                 best_checkpoint = checkpoint
                 best_epoch = epoch
 
             # add the global step to the name of these metrics for recording
             # 'f1' --> 'f1_1000'
-            dev_result = dict((k + '_{}'.format(epoch), v) for k, v in dev_result.items())
+            dev_result = dict((k + '_{}'.format(epoch), v) for k, v in fixed_scores.items())
             dev_results.update(dev_result)
 
-            test_result = evaluate(test_loader, model, args.paradigm, args.task)
-            test_result = dict((k + '_{}'.format(epoch), v) for k, v in test_result.items())
+            sents, _ = read_line_examples_from_file(f'data/{args.task}/{args.dataset}/test.txt')
+            test_result = evaluate(test_loader, model, args.paradigm, args.task, sents)
+            test_result = dict((k + '_{}'.format(epoch), v) for k, v in test_result[1].items())
             test_results.update(test_result)
 
     # print test results over last few steps
